@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Drawing Studio</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.2.0/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: white;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            background: linear-gradient(45deg, #4CAF50, #81C784);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 2.5rem;
+            margin: 0;
+            font-weight: bold;
+        }
+
+        .subtitle {
+            color: #aaa;
+            font-size: 1.1rem;
+            margin-top: 10px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .panel {
+            background: rgba(42, 42, 42, 0.9);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .video-panel h3,
+        .drawing-panel h3 {
+            color: #4CAF50;
+            margin-top: 0;
+            font-size: 1.3rem;
+            text-align: center;
+        }
+
+        .video-container {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+
+        #input_video, #output_canvas {
+            border-radius: 10px;
+            max-width: 100%;
+            height: auto;
+        }
+
+        #output_canvas {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .drawing-container {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            margin-bottom: 15px;
+            overflow: hidden; /* Contain the indicator within the canvas area */
+        }
+
+        #drawing_canvas {
+            border: 2px solid #4CAF50;
+            border-radius: 10px;
+            background: white;
+            cursor: crosshair;
+            max-width: 100%;
+            height: auto;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+        }
+
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .status {
+            text-align: center;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        .status.ready {
+            background: linear-gradient(45deg, #4CAF50, #81C784);
+        }
+
+        .status.loading {
+            background: linear-gradient(45deg, #ff9800, #ffb74d);
+        }
+
+        .status.error {
+            background: linear-gradient(45deg, #f44336, #ef5350);
+        }
+
+        .gesture-info {
+            background: rgba(51, 51, 51, 0.8);
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        .current-gesture {
+            font-size: 1.5rem;
+            color: #4CAF50;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .drawing-tools {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .tool-section {
+            background: rgba(51, 51, 51, 0.8);
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .tool-section h4 {
+            color: #4CAF50;
+            margin: 0 0 10px 0;
+            font-size: 1.1rem;
+        }
+
+        .color-palette {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .color-btn {
+            width: 40px;
+            height: 40px;
+            border: 3px solid transparent;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .color-btn.active {
+            border-color: #4CAF50;
+            transform: scale(1.1);
+        }
+
+        .size-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #brushSize {
+            flex: 1;
+            -webkit-appearance: none;
+            height: 6px;
+            border-radius: 3px;
+            background: #666;
+            outline: none;
+        }
+
+        #brushSize::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4CAF50;
+            cursor: pointer;
+        }
+
+        .gesture-guide {
+            background: rgba(51, 51, 51, 0.8);
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .gesture-guide h3 {
+            color: #4CAF50;
+            margin-top: 0;
+        }
+
+        .gesture-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+
+        .gesture-item {
+            background: rgba(68, 68, 68, 0.8);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 14px;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .coordinates {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        .retry-button {
+            background: linear-gradient(45deg, #ff9800, #ffb74d);
+            margin-top: 10px;
+        }
+
+        .mode-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .mode-draw {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .mode-erase {
+            background: #f44336;
+            color: white;
+        }
+
+        .mode-move {
+            background: #ff9800;
+            color: white;
+        }
+
+        .drawing-indicator {
+            position: absolute;
+            pointer-events: none;
+            border-radius: 50%;
+            border: 2px solid;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: all 0.1s ease;
+            z-index: 10;
+            display: none;
+        }
+
+        .indicator-draw {
+            border-color: #4CAF50;
+            background: rgba(76, 175, 80, 0.2);
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+        }
+
+        .indicator-erase {
+            border-color: #f44336;
+            background: rgba(244, 67, 54, 0.2);
+            box-shadow: 0 0 10px rgba(244, 67, 54, 0.5);
+        }
+
+        .indicator-move {
+            border-color: #ff9800;
+            background: rgba(255, 152, 0, 0.2);
+            box-shadow: 0 0 10px rgba(255, 152, 0, 0.5);
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            button {
+                width: 100%;
+                max-width: 200px;
+            }
+            
+            #drawing_canvas {
+                max-width: 100%;
+                height: auto;
+            }
+
+            .drawing-tools {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Gesture Drawing Studio</h1>
+            <p class="subtitle">Draw with your hands in the air!</p>
+        </div>
+        
+        <div class="status loading" id="status">Loading MediaPipe Hands...</div>
+        
+        <div class="main-content">
+            <div class="panel video-panel">
+                <h3>📹 Camera Feed</h3>
+                <div class="video-container">
+                    <video id="input_video" width="320" height="240" style="display: none;"></video>
+                    <canvas id="output_canvas" width="320" height="240" style="display: none;"></canvas>
+                </div>
+                
+                <div class="controls">
+                    <button id="startBtn" onclick="startCamera()" disabled>Start Camera</button>
+                    <button id="stopBtn" onclick="stopCamera()" disabled>Stop Camera</button>
+                    <button id="retryBtn" class="retry-button" onclick="retrySetup()" style="display: none;">Retry Setup</button>
+                </div>
+
+                <div class="gesture-info" id="gestureInfo" style="display: none;">
+                    <div class="current-gesture" id="currentGesture">No hands detected</div>
+                    <div class="coordinates" id="coordinates"></div>
+                </div>
+            </div>
+
+            <div class="panel drawing-panel">
+                <h3>🖌️ Drawing Canvas</h3>
+                <div class="drawing-container">
+                    <canvas id="drawing_canvas" width="400" height="300"></canvas>
+                    <div id="modeIndicator" class="mode-indicator mode-move" style="display: none;">MOVE</div>
+                    <div id="drawingIndicator" class="drawing-indicator"></div>
+                </div>
+                
+                <div class="controls">
+                    <button onclick="clearCanvas()">Clear Canvas</button>
+                    <button onclick="downloadDrawing()">Download Art</button>
+                    <button onclick="toggleCanvas()">Toggle Size</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="drawing-tools">
+            <div class="tool-section">
+                <h4>🎨 Colors</h4>
+                <div class="color-palette">
+                    <div class="color-btn active" style="background-color: #000000" onclick="setColor('#000000')"></div>
+                    <div class="color-btn" style="background-color: #FF0000" onclick="setColor('#FF0000')"></div>
+                    <div class="color-btn" style="background-color: #00FF00" onclick="setColor('#00FF00')"></div>
+                    <div class="color-btn" style="background-color: #0000FF" onclick="setColor('#0000FF')"></div>
+                    <div class="color-btn" style="background-color: #FFFF00" onclick="setColor('#FFFF00')"></div>
+                    <div class="color-btn" style="background-color: #FF00FF" onclick="setColor('#FF00FF')"></div>
+                    <div class="color-btn" style="background-color: #00FFFF" onclick="setColor('#00FFFF')"></div>
+                    <div class="color-btn" style="background-color: #FFA500" onclick="setColor('#FFA500')"></div>
+                </div>
+            </div>
+
+            <div class="tool-section">
+                <h4>📏 Brush Size</h4>
+                <div class="size-control">
+                    <span>Small</span>
+                    <input type="range" id="brushSize" min="2" max="20" value="5" onchange="setBrushSize(this.value)">
+                    <span>Large</span>
+                </div>
+                <div style="text-align: center; margin-top: 8px;">
+                    Size: <span id="sizeDisplay">5px</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="gesture-guide">
+            <h3>✋ Gesture Controls</h3>
+            <div class="gesture-list">
+                <div class="gesture-item">👉 <strong>Point</strong><br>Draw on canvas</div>
+                <div class="gesture-item">✊ <strong>Fist</strong><br>Stop drawing</div>
+                <div class="gesture-item">🖐️ <strong>Open Hand</strong><br>Erase mode</div>
+                <div class="gesture-item">✌️ <strong>Peace Sign</strong><br>Move without drawing</div>
+                <div class="gesture-item">👍 <strong>Thumbs Up</strong><br>Increase brush size</div>
+                <div class="gesture-item">👎 <strong>Thumbs Down</strong><br>Decrease brush size</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let videoElement;
+        let canvasElement;
+        let canvasCtx;
+        let drawingCanvas;
+        let drawingCtx;
+        let hands;
+        let camera;
+        let isRunning = false;
+        let initializationAttempts = 0;
+
+        // Drawing state
+        let isDrawing = false;
+        let isErasing = false;
+        let isMoving = false;
+        let lastX = 0;
+        let lastY = 0;
+        let currentColor = '#000000';
+        let currentBrushSize = 5;
+        let lastGesture = '';
+        let gestureStartTime = 0;
+        let gestureBuffer = [];
+        let canvasSize = 'normal';
+
+        // Drawing indicator
+        let drawingIndicator;
+        let canvasRect;
+
+        // Debouncing and smoothing
+        const GESTURE_HOLD_TIME = 200; // ms
+        const GESTURE_BUFFER_SIZE = 5;
+        const MIN_MOVEMENT_THRESHOLD = 3; // pixels
+        const GESTURE_CONFIDENCE_THRESHOLD = 0.8;
+
+        // Safety wrapper for drawing operations
+        function safeDrawingOperation(operation) {
+            try {
+                if (drawingCtx && drawingCanvas) {
+                    operation();
+                }
+            } catch (error) {
+                console.error('Drawing operation failed:', error);
+                resetDrawingState();
+            }
+        }
+
+        // Reset drawing state on errors
+        function resetDrawingState() {
+            isDrawing = false;
+            isErasing = false;
+            isMoving = false;
+            if (drawingCtx) {
+                drawingCtx.globalCompositeOperation = 'source-over';
+                drawingCtx.strokeStyle = currentColor;
+                drawingCtx.lineWidth = currentBrushSize;
+            }
+            hideDrawingIndicator();
+        }
+
+        // Initialize MediaPipe Hands with error handling
+        async function initializeHands() {
+            try {
+                updateStatus('loading', 'Setting up camera and hand tracking...');
+                
+                videoElement = document.getElementById('input_video');
+                canvasElement = document.getElementById('output_canvas');
+                canvasCtx = canvasElement.getContext('2d');
+                drawingCanvas = document.getElementById('drawing_canvas');
+                drawingCtx = drawingCanvas.getContext('2d');
+                drawingIndicator = document.getElementById('drawingIndicator');
+
+                if (!videoElement || !canvasElement || !drawingCanvas || !drawingIndicator) {
+                    throw new Error('Required canvas elements not found');
+                }
+
+                // Set up drawing canvas with better defaults
+                setupDrawingCanvas();
+                updateCanvasRect();
+
+                // Check if MediaPipe is available
+                if (typeof Hands === 'undefined') {
+                    throw new Error('MediaPipe Hands library not loaded');
+                }
+
+                hands = new Hands({
+                    locateFile: (file) => {
+                        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                    }
+                });
+
+                hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.8,
+                    minTrackingConfidence: 0.7
+                });
+
+                hands.onResults(onResults);
+
+                // Initialize camera with better error handling
+                if (typeof Camera === 'undefined') {
+                    throw new Error('MediaPipe Camera utils not loaded');
+                }
+
+                camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        if (isRunning && hands) {
+                            try {
+                                await hands.send({image: videoElement});
+                            } catch (error) {
+                                console.error('Hand detection error:', error);
+                            }
+                        }
+                    },
+                    width: 320,
+                    height: 240
+                });
+
+                updateStatus('ready', 'Ready to start drawing!');
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('retryBtn').style.display = 'none';
+
+            } catch (error) {
+                console.error('Initialization error:', error);
+                updateStatus('error', `Setup failed: ${error.message}`);
+                document.getElementById('retryBtn').style.display = 'inline-block';
+                initializationAttempts++;
+                
+                if (initializationAttempts >= 3) {
+                    updateStatus('error', 'Multiple setup failures. Please refresh the page.');
+                }
+            }
+        }
+
+        function setupDrawingCanvas() {
+            drawingCtx.lineCap = 'round';
+            drawingCtx.lineJoin = 'round';
+            drawingCtx.strokeStyle = currentColor;
+            drawingCtx.lineWidth = currentBrushSize;
+            
+            // Set canvas background to white
+            drawingCtx.fillStyle = 'white';
+            drawingCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+        }
+
+        function updateCanvasRect() {
+            canvasRect = drawingCanvas.getBoundingClientRect();
+        }
+
+        function updateDrawingIndicator(canvasX, canvasY, mode) {
+            if (!drawingIndicator) return;
+            
+            // Convert canvas coordinates to container-relative coordinates
+            const containerRect = drawingCanvas.getBoundingClientRect();
+            const parentRect = drawingCanvas.parentElement.getBoundingClientRect();
+            
+            // Calculate position relative to the container
+            const relativeX = containerRect.left - parentRect.left + (canvasX / drawingCanvas.width) * containerRect.width;
+            const relativeY = containerRect.top - parentRect.top + (canvasY / drawingCanvas.height) * containerRect.height;
+            
+            // Update indicator position and style
+            drawingIndicator.style.display = 'block';
+            drawingIndicator.style.left = relativeX + 'px';
+            drawingIndicator.style.top = relativeY + 'px';
+            
+            // Update size based on brush size (with minimum and maximum bounds)
+            const indicatorSize = Math.max(10, Math.min(40, currentBrushSize * 2));
+            drawingIndicator.style.width = indicatorSize + 'px';
+            drawingIndicator.style.height = indicatorSize + 'px';
+            
+            // Update style based on mode
+            drawingIndicator.className = `drawing-indicator indicator-${mode}`;
+        }
+
+        function hideDrawingIndicator() {
+            if (drawingIndicator) {
+                drawingIndicator.style.display = 'none';
+            }
+        }
+
+        // Smooth gesture detection with buffer and confidence filtering
+        function smoothGesture(gestureResult) {
+            // Only accept high-confidence gestures
+            if (gestureResult.confidence < GESTURE_CONFIDENCE_THRESHOLD) {
+                gestureResult = { name: 'Low Confidence', confidence: 0 };
+            }
+
+            gestureBuffer.push(gestureResult);
+            if (gestureBuffer.length > GESTURE_BUFFER_SIZE) {
+                gestureBuffer.shift();
+            }
+
+            // Calculate weighted average based on confidence and frequency
+            const gestureScores = {};
+            gestureBuffer.forEach(g => {
+                if (!gestureScores[g.name]) {
+                    gestureScores[g.name] = { count: 0, totalConfidence: 0 };
+                }
+                gestureScores[g.name].count += 1;
+                gestureScores[g.name].totalConfidence += g.confidence;
+            });
+
+            let bestGesture = gestureResult;
+            let bestScore = 0;
+            
+            for (const [gesture, data] of Object.entries(gestureScores)) {
+                // Score = frequency * average confidence
+                const avgConfidence = data.totalConfidence / data.count;
+                const score = (data.count / gestureBuffer.length) * avgConfidence;
+                
+                if (score > bestScore && avgConfidence >= GESTURE_CONFIDENCE_THRESHOLD) {
+                    bestScore = score;
+                    bestGesture = { name: gesture, confidence: avgConfidence };
+                }
+            }
+
+            return bestGesture;
+        }
+
+        // Process hand detection results with better error handling
+        function onResults(results) {
+            try {
+                if (!canvasCtx || !results) return;
+
+                // Draw camera feed with hand landmarks
+                canvasCtx.save();
+                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+                canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const landmarks = results.multiHandLandmarks[0];
+                    
+                    // Validate landmarks
+                    if (!landmarks || landmarks.length !== 21) {
+                        displayGesture('Invalid hand data', null);
+                        hideDrawingIndicator();
+                        return;
+                    }
+                    
+                    // Draw hand landmarks safely
+                    try {
+                        if (typeof drawConnectors !== 'undefined' && typeof HAND_CONNECTIONS !== 'undefined') {
+                            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+                            drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 1});
+                        }
+                    } catch (error) {
+                        console.warn('Hand drawing error:', error);
+                    }
+                    
+                    // Detect gesture and handle drawing
+                    const rawGesture = detectGesture(landmarks);
+                    const smoothedGesture = smoothGesture(rawGesture);
+                    handleDrawing(landmarks, smoothedGesture);
+                    displayGesture(smoothedGesture.name, landmarks[8]); // Index finger tip
+                } else {
+                    displayGesture('No hands detected', null);
+                    resetDrawingState();
+                    updateModeIndicator('move');
+                }
+
+                canvasCtx.restore();
+
+            } catch (error) {
+                console.error('Results processing error:', error);
+                displayGesture('Processing error', null);
+                hideDrawingIndicator();
+            }
+        }
+
+        // Calculate distance between two landmarks
+        function landmarkDistance(p1, p2) {
+            return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
+        }
+
+        // Calculate angle between three points
+        function calculateAngle(p1, p2, p3) {
+            const v1 = { x: p1.x - p2.x, y: p1.y - p2.y };
+            const v2 = { x: p3.x - p2.x, y: p3.y - p2.y };
+            const dot = v1.x * v2.x + v1.y * v2.y;
+            const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+            const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+            return Math.acos(dot / (mag1 * mag2)) * (180 / Math.PI);
+        }
+
+        // Enhanced gesture detection with anatomical accuracy
+        function detectGesture(landmarks) {
+            if (!landmarks || landmarks.length !== 21) {
+                return {name: 'Unknown', confidence: 0};
+            }
+
+            try {
+                // Hand landmarks - using anatomically correct indices
+                const wrist = landmarks[0];
+                const thumb_cmc = landmarks[1];
+                const thumb_mcp = landmarks[2];
+                const thumb_ip = landmarks[3];
+                const thumb_tip = landmarks[4];
+                
+                const index_mcp = landmarks[5];
+                const index_pip = landmarks[6];
+                const index_dip = landmarks[7];
+                const index_tip = landmarks[8];
+                
+                const middle_mcp = landmarks[9];
+                const middle_pip = landmarks[10];
+                const middle_dip = landmarks[11];
+                const middle_tip = landmarks[12];
+                
+                const ring_mcp = landmarks[13];
+                const ring_pip = landmarks[14];
+                const ring_dip = landmarks[15];
+                const ring_tip = landmarks[16];
+                
+                const pinky_mcp = landmarks[17];
+                const pinky_pip = landmarks[18];
+                const pinky_dip = landmarks[19];
+                const pinky_tip = landmarks[20];
+
+                // Validate all landmarks
+                const allLandmarks = [wrist, thumb_tip, index_tip, middle_tip, ring_tip, pinky_tip];
+                if (allLandmarks.some(l => !l || typeof l.x !== 'number' || typeof l.y !== 'number')) {
+                    return {name: 'Invalid', confidence: 0};
+                }
+
+                // Calculate hand size for normalization
+                const handSize = landmarkDistance(wrist, middle_mcp);
+                if (handSize < 0.05) return {name: 'Hand too small', confidence: 0};
+
+                // Determine hand orientation (left vs right)
+                const isRightHand = thumb_tip.x < index_tip.x;
+
+                // Enhanced finger extension detection using angles and relative positions
+                const fingerStates = {
+                    thumb: isFingerExtended('thumb', [thumb_cmc, thumb_mcp, thumb_ip, thumb_tip], handSize, isRightHand),
+                    index: isFingerExtended('index', [index_mcp, index_pip, index_dip, index_tip], handSize),
+                    middle: isFingerExtended('middle', [middle_mcp, middle_pip, middle_dip, middle_tip], handSize),
+                    ring: isFingerExtended('ring', [ring_mcp, ring_pip, ring_dip, ring_tip], handSize),
+                    pinky: isFingerExtended('pinky', [pinky_mcp, pinky_pip, pinky_dip, pinky_tip], handSize)
+                };
+
+                // Count extended fingers
+                const extendedFingers = Object.keys(fingerStates).filter(finger => fingerStates[finger]);
+                const extendedCount = extendedFingers.length;
+
+                // Gesture classification with higher accuracy
+                if (extendedCount === 0) {
+                    return {name: 'Fist', confidence: 0.95};
+                }
+
+                if (extendedCount === 5) {
+                    return {name: 'Open Hand', confidence: 0.95};
+                }
+
+                if (extendedCount === 1) {
+                    if (fingerStates.index && !fingerStates.thumb) {
+                        return {name: 'Point', confidence: 0.95};
+                    }
+                    if (fingerStates.thumb && !fingerStates.index) {
+                        // Check thumb direction for thumbs up/down
+                        const thumbAngle = calculateAngle(thumb_mcp, thumb_ip, thumb_tip);
+                        if (thumb_tip.y < wrist.y - handSize * 0.3) {
+                            return {name: 'Thumbs Up', confidence: 0.9};
+                        } else if (thumb_tip.y > wrist.y + handSize * 0.3) {
+                            return {name: 'Thumbs Down', confidence: 0.9};
+                        }
+                        return {name: 'Thumb Extended', confidence: 0.7};
+                    }
+                }
+
+                if (extendedCount === 2) {
+                    if (fingerStates.index && fingerStates.middle && !fingerStates.ring && !fingerStates.pinky) {
+                        // Additional check for peace sign - fingers should be separated
+                        const fingerSeparation = landmarkDistance(index_tip, middle_tip);
+                        if (fingerSeparation > handSize * 0.15) {
+                            return {name: 'Peace Sign', confidence: 0.9};
+                        }
+                    }
+                    if (fingerStates.index && fingerStates.thumb) {
+                        return {name: 'Gun', confidence: 0.8};
+                    }
+                }
+
+                if (extendedCount === 3) {
+                    if (fingerStates.thumb && fingerStates.index && fingerStates.middle) {
+                        return {name: 'Three Fingers', confidence: 0.8};
+                    }
+                }
+
+                if (extendedCount === 4) {
+                    if (!fingerStates.thumb) {
+                        return {name: 'Four Fingers', confidence: 0.8};
+                    }
+                }
+
+                return {name: `${extendedCount} fingers`, confidence: 0.6};
+
+            } catch (error) {
+                console.error('Gesture detection error:', error);
+                return {name: 'Error', confidence: 0};
+            }
+        }
+
+        // Improved finger extension detection
+        function isFingerExtended(fingerName, joints, handSize, isRightHand = true) {
+            if (joints.length < 3) return false;
+
+            try {
+                const [base, pip, dip, tip] = joints;
+                
+                if (fingerName === 'thumb') {
+                    // Thumb has different mechanics
+                    const thumbDistance = landmarkDistance(base, tip);
+                    const thumbAngle = calculateAngle(base, pip, tip);
+                    
+                    // Thumb is extended if it's far from base and angle is obtuse
+                    return thumbDistance > handSize * 0.12 && thumbAngle > 140;
+                } else {
+                    // For other fingers, check if tip is significantly above base
+                    const tipToPipDistance = landmarkDistance(tip, pip);
+                    const pipToBaseDistance = landmarkDistance(pip, base);
+                    
+                    // Finger is extended if tip is above pip (in Y) and distances are appropriate
+                    const isVerticallyExtended = tip.y < pip.y - handSize * 0.05;
+                    const hasProperLength = tipToPipDistance > handSize * 0.08;
+                    
+                    // Also check the angle at the pip joint
+                    const pipAngle = calculateAngle(base, pip, tip);
+                    const isAngleExtended = pipAngle > 140; // Angle should be relatively straight
+                    
+                    return isVerticallyExtended && hasProperLength && isAngleExtended;
+                }
+            } catch (error) {
+                console.warn(`Finger extension detection error for ${fingerName}:`, error);
+                return false;
+            }
+        }
+
+        // Handle drawing based on gestures with better state management
+        function handleDrawing(landmarks, gesture) {
+            try {
+                const indexTip = landmarks[8];
+                if (!indexTip) return;
+                
+                // Convert hand coordinates to canvas coordinates with bounds checking
+                const canvasX = Math.max(0, Math.min((1 - indexTip.x) * drawingCanvas.width, drawingCanvas.width));
+                const canvasY = Math.max(0, Math.min(indexTip.y * drawingCanvas.height, drawingCanvas.height));
+
+                // Handle gesture changes with debouncing
+                if (gesture.name !== lastGesture) {
+                    gestureStartTime = Date.now();
+                    lastGesture = gesture.name;
+                }
+
+                // Only act on gestures held for minimum time
+                const gestureHoldTime = Date.now() - gestureStartTime;
+                if (gestureHoldTime < GESTURE_HOLD_TIME) return;
+
+                // Calculate movement distance for smoothing
+                const distance = Math.sqrt((canvasX - lastX) ** 2 + (canvasY - lastY) ** 2);
+                
+                switch (gesture.name) {
+                    case 'Point':
+                        safeDrawingOperation(() => {
+                            if (!isDrawing) {
+                                isDrawing = true;
+                                isErasing = false;
+                                isMoving = false;
+                                drawingCtx.globalCompositeOperation = 'source-over';
+                                drawingCtx.strokeStyle = currentColor;
+                                drawingCtx.lineWidth = currentBrushSize;
+                                drawingCtx.beginPath();
+                                drawingCtx.moveTo(canvasX, canvasY);
+                                updateModeIndicator('draw');
+                            } else if (distance > MIN_MOVEMENT_THRESHOLD) {
+                                drawingCtx.lineTo(canvasX, canvasY);
+                                drawingCtx.stroke();
+                            }
+                        });
+                        updateDrawingIndicator(canvasX, canvasY, 'draw');
+                        break;
+
+                    case 'Open Hand':
+                        safeDrawingOperation(() => {
+                            if (!isErasing) {
+                                isErasing = true;
+                                isDrawing = false;
+                                isMoving = false;
+                                drawingCtx.globalCompositeOperation = 'destination-out';
+                                drawingCtx.lineWidth = Math.max(currentBrushSize * 2, 10);
+                                drawingCtx.beginPath();
+                                drawingCtx.moveTo(canvasX, canvasY);
+                                updateModeIndicator('erase');
+                            } else if (distance > MIN_MOVEMENT_THRESHOLD) {
+                                drawingCtx.lineTo(canvasX, canvasY);
+                                drawingCtx.stroke();
+                            }
+                        });
+                        updateDrawingIndicator(canvasX, canvasY, 'erase');
+                        break;
+
+                    case 'Fist':
+                    case 'Peace Sign':
+                        isDrawing = false;
+                        isErasing = false;
+                        isMoving = true;
+                        updateModeIndicator('move');
+                        updateDrawingIndicator(canvasX, canvasY, 'move');
+                        break;
+
+                    case 'Thumbs Up':
+                        if (gestureHoldTime > 1000 && gestureHoldTime < 1200) { // Only trigger once per hold
+                            currentBrushSize = Math.min(currentBrushSize + 1, 20);
+                            updateBrushSize(currentBrushSize);
+                            gestureStartTime = Date.now(); // Reset timer
+                        }
+                        updateDrawingIndicator(canvasX, canvasY, 'move');
+                        break;
+
+                    case 'Thumbs Down':
+                        if (gestureHoldTime > 1000 && gestureHoldTime < 1200) { // Only trigger once per hold
+                            currentBrushSize = Math.max(currentBrushSize - 1, 2);
+                            updateBrushSize(currentBrushSize);
+                            gestureStartTime = Date.now(); // Reset timer
+                        }
+                        updateDrawingIndicator(canvasX, canvasY, 'move');
+                        break;
+
+                    default:
+                        // For unrecognized gestures, just show the indicator in move mode
+                        updateDrawingIndicator(canvasX, canvasY, 'move');
+                        break;
+                }
+
+                lastX = canvasX;
+                lastY = canvasY;
+
+            } catch (error) {
+                console.error('Drawing handling error:', error);
+                resetDrawingState();
+            }
+        }
+
+        function updateModeIndicator(mode) {
+            const indicator = document.getElementById('modeIndicator');
+            if (!indicator) return;
+            
+            indicator.style.display = 'block';
+            indicator.className = `mode-indicator mode-${mode}`;
+            
+            switch (mode) {
+                case 'draw':
+                    indicator.textContent = 'DRAW';
+                    break;
+                case 'erase':
+                    indicator.textContent = 'ERASE';
+                    break;
+                case 'move':
+                    indicator.textContent = 'MOVE';
+                    break;
+            }
+        }
+
+        function displayGesture(gestureName, indexTip) {
+            const gestureEl = document.getElementById('currentGesture');
+            const coordsEl = document.getElementById('coordinates');
+            
+            if (gestureEl) {
+                gestureEl.textContent = gestureName;
+            }
+            
+            if (coordsEl && indexTip) {
+                const canvasX = Math.round((1 - indexTip.x) * drawingCanvas.width);
+                const canvasY = Math.round(indexTip.y * drawingCanvas.height);
+                coordsEl.textContent = `Drawing at: (${canvasX}, ${canvasY})`;
+            } else if (coordsEl) {
+                coordsEl.textContent = '';
+            }
+        }
+
+        // Drawing tools functions with validation
+        function setColor(color) {
+            if (typeof color === 'string' && color.match(/^#[0-9A-F]{6}$/i)) {
+                currentColor = color;
+                if (drawingCtx) {
+                    drawingCtx.strokeStyle = color;
+                }
+                
+                // Update active color button
+                document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+                if (event && event.target) {
+                    event.target.classList.add('active');
+                }
+            }
+        }
+
+        function setBrushSize(size) {
+            updateBrushSize(parseInt(size));
+        }
+
+        function updateBrushSize(size) {
+            const validSize = Math.max(2, Math.min(20, parseInt(size)));
+            currentBrushSize = validSize;
+            
+            if (drawingCtx) {
+                drawingCtx.lineWidth = currentBrushSize;
+            }
+            
+            const sizeDisplay = document.getElementById('sizeDisplay');
+            const brushSlider = document.getElementById('brushSize');
+            
+            if (sizeDisplay) sizeDisplay.textContent = validSize + 'px';
+            if (brushSlider) brushSlider.value = validSize;
+        }
+
+        function clearCanvas() {
+            safeDrawingOperation(() => {
+                drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                // Reset background to white
+                drawingCtx.fillStyle = 'white';
+                drawingCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                resetDrawingState();
+            });
+        }
+
+        function downloadDrawing() {
+            try {
+                const link = document.createElement('a');
+                link.download = 'gesture-drawing-' + Date.now() + '.png';
+                link.href = drawingCanvas.toDataURL('image/png');
+                link.click();
+            } catch (error) {
+                console.error('Download failed:', error);
+                updateStatus('error', 'Download failed. Please try again.');
+            }
+        }
+
+        function toggleCanvas() {
+            if (canvasSize === 'normal') {
+                drawingCanvas.width = 600;
+                drawingCanvas.height = 450;
+                canvasSize = 'large';
+            } else {
+                drawingCanvas.width = 400;
+                drawingCanvas.height = 300;
+                canvasSize = 'normal';
+            }
+            setupDrawingCanvas();
+            updateCanvasRect(); // Update canvas rectangle after resize
+        }
+
+        // Camera controls with better error handling
+        async function startCamera() {
+            try {
+                if (!camera) {
+                    throw new Error('Camera not initialized');
+                }
+                
+                isRunning = true;
+                await camera.start();
+                
+                videoElement.style.display = 'block';
+                canvasElement.style.display = 'block';
+                document.getElementById('gestureInfo').style.display = 'block';
+                
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                
+                updateStatus('ready', 'Camera active - Start drawing with gestures!');
+                updateCanvasRect(); // Update canvas rectangle when camera starts
+                
+            } catch (error) {
+                console.error('Camera error:', error);
+                updateStatus('error', 'Camera access failed. Please allow camera permission and try again.');
+                isRunning = false;
+                document.getElementById('retryBtn').style.display = 'inline-block';
+            }
+        }
+
+        function stopCamera() {
+            try {
+                isRunning = false;
+                if (camera) {
+                    camera.stop();
+                }
+                
+                videoElement.style.display = 'none';
+                canvasElement.style.display = 'none';
+                document.getElementById('gestureInfo').style.display = 'none';
+                document.getElementById('modeIndicator').style.display = 'none';
+                
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                
+                updateStatus('ready', 'Camera stopped');
+                resetDrawingState();
+                
+            } catch (error) {
+                console.error('Stop camera error:', error);
+            }
+        }
+
+        function retrySetup() {
+            document.getElementById('retryBtn').style.display = 'none';
+            initializeHands();
+        }
+
+        function updateStatus(type, message) {
+            const statusEl = document.getElementById('status');
+            if (statusEl) {
+                statusEl.className = `status ${type}`;
+                statusEl.textContent = message;
+            }
+        }
+
+        // Update canvas rectangle on window resize
+        window.addEventListener('resize', () => {
+            updateCanvasRect();
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (isRunning && camera) {
+                camera.stop();
+            }
+        });
+
+        // Initialize when page loads with error recovery
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                initializeHands();
+            }, 100); // Small delay to ensure all resources are loaded
+        });
+
+        // Handle visibility change
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && isRunning) {
+                // Pause when tab is hidden
+                isRunning = false;
+            } else if (!document.hidden && camera && document.getElementById('stopBtn').disabled === false) {
+                // Resume when tab is visible
+                isRunning = true;
+            }
+        });
+    </script>
+</body>
+</html>
